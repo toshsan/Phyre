@@ -17,94 +17,120 @@
     // Report runtime errors
     error_reporting(E_ALL & ~(E_STRICT|E_NOTICE));
     ob_start();
-    $_routes = array(
+
+    $_ROUTES = array(
             'default' => array(
-                    'url' => '/^\/((?<controller>[\w\d]+)(\/(?<action>[\w\d]+)(\/(?<id>.*))?)?)?$/i',
+                    'url' => '/^\/(?<controller>[\w\d]+)?\/?(?<action>[\w\d\-]+)?\/?(?<id>.*)?\/?$/i',
                     'controller' => 'home',
                     'action' => 'index'
             ), // /{controller:home}/{action:index}/{id:null}
     );
-    require('config/config.inc');
+
+	//set error handler
+	//set_error_handler("custom_error");
+
+	define('__ROOT__', 	dirname(__FILE__).'/app/');
+    define('__CONTROLLERS__', __ROOT__.'controllers/');
+    define('__VIEWS__', __ROOT__.'views/');
+    define('__LIB__', 	__ROOT__.'lib/');
+    define('__CONFIG__', 	__ROOT__.'config/');
+
+    if(file_exists(__CONFIG__.'config.inc')) require_once (__CONFIG__.'config.inc');
     ini_set("display_errors", __DEBUG__);
-    define('__ROOT__', 	dirname(__FILE__));
-    define('__CONTROLLERS__', dirname(__FILE__).'/controllers/');
-    define('__VIEWS__', dirname(__FILE__).'/views/');
-    define('__LIB__', 	dirname(__FILE__).'/lib/');
-    require(__LIB__.'includes.inc');
-    Router::route($_routes);
-    function show_404($reason='404:Page not found'){
+	
+    if(file_exists(__CONFIG__.'includes.inc')) require_once (__CONFIG__.'includes.inc');
+    if(file_exists(__CONFIG__.'routes.inc')) require_once (__CONFIG__.'routes.inc');
+
+	//error handler function
+	function custom_error($errno, $errstr){
+		header("HTTP/1.0 500 Internal Server Error");
+		$error_view = new TemplateView("error/500", FALSE, FALSE);
+		$error_view->render();
+	}
+
+	function show_404($reason='404:Page not found'){
         header('HTTP/1.0 404 Not Found');
         if(__DEBUG__){
-            print "Error(debug): $reason";
+            print "$reason<hr/>404 Error(debug) | Phyre";
         }
         else {
             $error_view = new TemplateView("error/404");
             $error_view->render();
         }
     }
-    class Router{
-        private function find_route($_routes, $path, &$args, &$pattern){
-            foreach($_routes as $name=>$pattern){
-                if(is_array($pattern)){
-                    $route = $pattern['url'];
-                }else{
-                    $route = $pattern;
-                }
-    
+
+	class Router{
+        function route($_ROUTES){
+            list($path) = explode('?', $_SERVER['REQUEST_URI']);
+            if(self::find_route($_ROUTES, $path, $args, $params, $name, $route) == FALSE){
+				$msg = "<h1>404: No route found for {$_SERVER['REQUEST_METHOD']}:\"$path\"</h1><hr/>";
+				$msg .= "Args<br/><pre>";
+				$msg .= print_r($args, true);
+				$msg .= "Route: $name:$route";
+				$msg .="</pre>";
+				show_404($msg);
+			}
+			exit;
+        }
+
+        private function find_route($_ROUTES, $path, &$args, &$params, &$name, &$route){
+            foreach($_ROUTES as $name=>$params){
+                $route = is_array($params)? $params['url'] : $params;
                 if (preg_match($route, $path, $args)) {
-                    if(is_array($pattern)){
-                        $args2 = array_merge($pattern, $args);
-                    }
-                    if($found = self::resolve_controller($args2)){
-                        return $found;
+                    if(self::resolve_controller($args, $params)){
+                        return TRUE;
                     }
                 }
             }
-            return false;
+            return FALSE;
         }
-        private function resolve_controller($args){
-            $controllername 	= array_key_exists('controller', $args)? trim($args['controller']): 'home';
+
+        private function resolve_controller($args, $params){
+            $controllername 	= empty($args['controller'])? $params['controller'] : trim($args['controller']);
             $controllerclass	= ucwords($controllername).'Controller';
-            $path 				= array_key_exists('path', $args)? $args['path'] : __CONTROLLERS__;
-            $handler_file 		= strtolower($path. (array_key_exists('file', $args)? $args['file'] : "class.$controllerclass.php"));
-            if(file_exists($handler_file)) {
-                require_once($handler_file);
-                if(class_exists($controllerclass)){
+            $path 				= empty($params['path'])? __CONTROLLERS__ : $params['path'] ;
+            $controllerfile		= strtolower($path. (empty($params['file'])? "class.$controllerclass.php" : $params['file'] ));
+			//print $controllerfile; exit;
+            if(file_exists($controllerfile)){
+                require_once($controllerfile);
+				if(class_exists($controllerclass)){
                     $controller = new $controllerclass($controllername);
                     if(is_a($controller, 'Controller')){
                         $controller->name = $controllername;
-                        return $controller->execute($args);
+                        return $controller->execute($args, $params);
                     }
-                }
-            }
-        }
-        function route($_routes){
-            list($path) = explode('?', $_SERVER['REQUEST_URI']);
-            $match = self::find_route($_routes, $path, $args, $pattern);
-            if(!$match){
-                show_404("No route found for {$_SERVER['REQUEST_METHOD']}:\"$path\"");
+                }else{
+					print "Controller '$controllerclass' not defined in $controllerfile";
+				}
             }
         }
     }
-    abstract class Controller{
+
+	abstract class Controller{
 		public static $view_engine = "TemplateView";
         private $name;
         protected $args;
         protected $request_args;
         protected $model;
         protected $session;
+        protected $donot_use_dash;
+
         function __construct($name){
             $this->name = $name;
         }
-        function execute($args){
-            $this->args = $args;
+
+        function execute($args, $params){
             $this->session = $_SESSION;
             $this->request_args = $request_args = array_merge($_GET, $_POST, $args);
             $request_method = strtoupper($_SERVER['REQUEST_METHOD']);
-            $action_name = empty($args['action'])? 'index' : $args['action'];
-            $args['action'] = $action_name; //override empty actions
+            $action_name = empty($args['action'])? $params['action'] : $args['action'];
+            $action_name = str_replace('-', '_', $action_name);
+			//var_dump($args); print $action_name; exit; //DEBUG
+			
+			$this->args = array_merge($args, $params);
+            $this->args['action'] = $action_name; //override empty actions
             $action_method_name = $request_method .'_'. $action_name;
-    
+
             if(!is_callable(array($this, $action_method_name))){
                 $action_method_name = $action_name;
             }
@@ -114,9 +140,11 @@
                 $param_values = array();
                 if(count($parameters)>0){
                     foreach($parameters as $param){
-                        $param_values[] = array_key_exists($param->name, $request_args)? $request_args[$param->name]: FALSE;
+                        $param_values[] = empty($request_args[$param->name])? NULL: $request_args[$param->name];
                     }
                 }
+
+				if(method_exists('App', 'pre_execute')) App::pre_execute($this->args);
                 $view = call_user_func_array(array($this, $action_method_name), $param_values);
                 if(is_a($view, 'View')){
                     $view->render();
@@ -124,11 +152,13 @@
                 else{
                     echo $view;
                 }
-                return true;
+				if(method_exists('App', 'post_execute')) App::post_execute($this->args);
+                return TRUE;
             }
-            return false;
+            return FALSE;
         }
-        protected function view($template=false, $model=false, $view=false){
+
+        protected function view($template=FALSE, $model=FALSE, $view=FALSE){
             if(!$template){
                 $template = $this->args['action'];
             }
@@ -137,39 +167,47 @@
             }
             return new self::$view_engine("{$this->name}/$template", $model, $view);
         }
+
         protected function json($model){
             return new JsonView($model);
         }
-        protected function redirect($location, $is_permanent=false){
+
+        protected function redirect($location, $is_permanent=FALSE){
             if($is_permanent){
                 header('HTTP/1.1 301 Moved Permanently');
             }
             header("Location: $location");
         }
+
         protected function show_404(){
             show_404();
         }
     }
-    abstract class View{
+
+	abstract class View{
         public function render()  {
             ob_end_clean();
             ob_start();
             $this->render_content();
             ob_end_flush();
         }
+
         public function render_content(){
             echo 'Dummy View';
         }
     }
-    class TemplateView extends View{
+
+	class TemplateView extends View{
         private $template;
         private $model;
         private $viewdata;
+
         public function __construct($template, $model, $viewdata){
             $this->template = $template;
             $this->model = $model;
             $this->viewdata = $viewdata;
         }
+
         public function render_content(){
             $template_path = $this->template.'.php';
             if(file_exists(__VIEWS__.$template_path)){
@@ -185,21 +223,28 @@
             }
         }
     }
-    class TemplateNotFoundException extends Exception {
+
+	class TemplateNotFoundException extends Exception {
         public function __construct($template) {
             parent::__construct($template);
         }
     }
-    class JsonView extends View{
+
+	class JsonView extends View{
         private $model;
-        public function __construct($model=false){
+
+        public function __construct($model=FALSE){
             $this->model = $model;
         }
+
         public function render_content(){
             header('Content-type: application/json');
             print json_encode($this->model);
         }
     }
-    // end output buffer and echo the page content
+
+	Router::route($_ROUTES);
+
+	// end output buffer and echo the page content
     ob_end_flush();
 ?>
