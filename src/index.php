@@ -16,11 +16,11 @@
      */
     // Report runtime errors
     error_reporting(E_ALL & ~(E_STRICT|E_NOTICE));
-    ob_start();
+	ob_start();
 
     $_ROUTES = array(
             'default' => array(
-                    'url' => '/^\/(?<controller>[\w\d]+)?\/?(?<action>[\w\d\-]+)?\/?(?<id>.*)?\/?$/i',
+                    'url' => '/^\/(?<controller>[\w\d]+)?\/?(?<action>[\w\d]+)?\/?(?<id>.*)?\/?$/i',
                     'controller' => 'home',
                     'action' => 'index'
             ), // /{controller:home}/{action:index}/{id:null}
@@ -113,7 +113,6 @@
         protected $request_args;
         protected $model;
         protected $session;
-        protected $donot_use_dash;
 
         function __construct($name){
             $this->name = $name;
@@ -124,9 +123,7 @@
             $this->request_args = $request_args = array_merge($_GET, $_POST, $args);
             $request_method = strtoupper($_SERVER['REQUEST_METHOD']);
             $action_name = empty($args['action'])? $params['action'] : $args['action'];
-            $action_name = str_replace('-', '_', $action_name);
 			//var_dump($args); print $action_name; exit; //DEBUG
-			
 			$this->args = array_merge($args, $params);
             $this->args['action'] = $action_name; //override empty actions
             $action_method_name = $request_method .'_'. $action_name;

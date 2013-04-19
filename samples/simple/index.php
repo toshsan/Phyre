@@ -39,6 +39,7 @@
     ini_set("display_errors", __DEBUG__);
 	
     if(file_exists(__CONFIG__.'includes.inc')) require_once (__CONFIG__.'includes.inc');
+    if(file_exists(__CONFIG__.'routes.inc')) require_once (__CONFIG__.'routes.inc');
 
 	//error handler function
 	function custom_error($errno, $errstr){
