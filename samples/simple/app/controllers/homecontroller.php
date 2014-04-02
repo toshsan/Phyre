@@ -1,5 +1,5 @@
 <?php
-class HomeController extends Phyre\Controller{
+class HomeController extends Controller{
 	function index(){
 		return $this->view();
 	}
